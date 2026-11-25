@@ -1,12 +1,20 @@
-// Burger Station world: tickets, grill, stack, score and timers.
+// Burger Station world: tickets, grill, stack, score, combo and timers.
 // Pure state + step logic; rendering lives in render.js, input in input.js.
 // Events are returned as a list of strings the main loop turns into sounds
 // and floating messages ("+160", "BURNT!", "PERFECT FLIP!").
+//
+// The combo is the streak mechanic: a perfect patty (flipped, lifted inside
+// the green doneness window) or a fast serve (patience still over 60%)
+// raises it by 1; a wrong serve, a walk-out ticket or a burnt patty resets
+// it to 0. Serving with a streak of 2+ pays +10 per streak level on top.
 
 import {
+  COMBO_SERVE_BONUS,
   COOK,
   GRILL_ZONES,
   INGREDIENTS,
+  PERFECT_PATTY_BONUS,
+  PERFECT_SERVE_FRACTION,
   RECIPES,
   SHIFT_SECONDS,
   TICKET_PATIENCE,
@@ -31,6 +39,10 @@ export function createWorld(random) {
     pop: 0, // serve pop animation timer
     time: 0,
     overReason: '',
+    combo: 0, // perfect streak: perfect patties + fast serves
+    comboBest: 0,
+    paused: false,
+    _burned: false, // set for one frame when a patty burns (burn sound cue)
   };
 
   function newTicket() {
@@ -54,6 +66,10 @@ export function createWorld(random) {
     state.time = 0;
     state.screen = 'play';
     state.overReason = '';
+    state.combo = 0;
+    state.comboBest = 0;
+    state.paused = false;
+    state._burned = false;
   }
 
   function currentTicket() {
@@ -63,6 +79,41 @@ export function createWorld(random) {
   function say(text, seconds = 1.6) {
     state.message = text;
     state.messageUntil = state.time + seconds;
+  }
+
+  function raiseCombo() {
+    state.combo += 1;
+    if (state.combo > state.comboBest) state.comboBest = state.combo;
+  }
+
+  function breakCombo() {
+    state.combo = 0;
+  }
+
+  function isPerfect(patty) {
+    return (
+      patty.doneness >= COOK.greenLow &&
+      patty.doneness <= COOK.greenHigh &&
+      patty.flipped
+    );
+  }
+
+  // Lift a cooked patty off a grill zone onto the stack. A perfect lift
+  // (flipped, inside the green window) pays the perfect bonus and raises
+  // the combo; any other cooked lift just stacks the patty.
+  function liftPatty(zone) {
+    const patty = state.grill[zone];
+    if (!patty) return null;
+    state.grill[zone] = null;
+    state.stack.push('patty');
+    if (isPerfect(patty)) {
+      raiseCombo();
+      state.score += PERFECT_PATTY_BONUS;
+      say(`PERFECT PATTY! +${PERFECT_PATTY_BONUS}`);
+    } else {
+      say('Patty on the stack!');
+    }
+    return 'place';
   }
 
   // Space / click: do the contextual action for the selected ingredient.
@@ -77,16 +128,7 @@ export function createWorld(random) {
       const cookedIdx = state.grill.findIndex(
         (p) => p && p.doneness >= COOK.greenLow && p.doneness <= COOK.burnAt,
       );
-      if (cookedIdx !== -1) {
-        const patty = state.grill[cookedIdx];
-        state.grill[cookedIdx] = null;
-        state.stack.push('patty');
-        const perfect = patty.doneness >= COOK.greenLow && patty.doneness <= COOK.greenHigh && patty.flipped;
-        if (perfect) say('PERFECT PATTY! +20');
-        else say('Patty on the stack!');
-        if (perfect) state.score += 20;
-        return 'place';
-      }
+      if (cookedIdx !== -1) return liftPatty(cookedIdx);
       const cookingIdx = state.grill.findIndex((p) => p && !p.flipped);
       if (cookingIdx !== -1) {
         state.grill[cookingIdx].flipped = true;
@@ -136,10 +178,7 @@ export function createWorld(random) {
     const patty = state.grill[zone];
     if (patty) {
       if (patty.doneness >= COOK.greenLow && patty.doneness <= COOK.burnAt) {
-        state.grill[zone] = null;
-        state.stack.push('patty');
-        say('Patty on the stack!');
-        return 'place';
+        return liftPatty(zone);
       }
       if (!patty.flipped) {
         patty.flipped = true;
@@ -170,17 +209,24 @@ export function createWorld(random) {
       got.length === want.length && got.every((layer, i) => layer === want[i]);
     if (!match) {
       state.flash = 1;
+      breakCombo();
       if (got.length === 0) say('Nothing on the plate yet!');
       else if (got.length < want.length) say('Not finished — check the ticket!');
       else say('WRONG STACK! Check the ticket!');
       return 'error';
     }
-    // Score: recipe price + patience bonus + speed bonus for a fast serve.
+    // Score: recipe price + patience bonus + combo bonus for a hot streak.
     const patienceBonus = Math.round((ticket.patience / ticket.max) * 60);
-    const points = ticket.recipe.price + patienceBonus;
+    const comboBonus = state.combo >= 2 ? state.combo * COMBO_SERVE_BONUS : 0;
+    const points = ticket.recipe.price + patienceBonus + comboBonus;
     state.score += points;
     state.served += 1;
-    if (ticket.patience / ticket.max > 0.6) state.servedPerfect += 1;
+    if (ticket.patience / ticket.max > PERFECT_SERVE_FRACTION) {
+      state.servedPerfect += 1;
+      raiseCombo();
+    } else {
+      breakCombo();
+    }
     state.pop = 1;
     state.stack = [];
     state.tickets.shift();
@@ -193,7 +239,7 @@ export function createWorld(random) {
     state.time += dt;
     if (state.flash > 0) state.flash = Math.max(0, state.flash - dt * 1.8);
     if (state.pop > 0) state.pop = Math.max(0, state.pop - dt * 1.4);
-    if (state.screen !== 'play') return;
+    if (state.screen !== 'play' || state.paused) return;
 
     state.shiftLeft -= dt;
     if (state.shiftLeft <= 0) {
@@ -209,6 +255,7 @@ export function createWorld(random) {
       ticket.patience -= dt;
       if (ticket.patience <= 0) {
         state.flash = 1;
+        breakCombo();
         say(`Too slow — ${ticket.recipe.name} walked out!`);
         state.tickets.shift();
         state.tickets.push(newTicket());
@@ -235,6 +282,8 @@ export function createWorld(random) {
       if (patty.doneness > COOK.burnAt) {
         state.grill[z] = null;
         state.flash = 1;
+        breakCombo();
+        state._burned = true;
         say('BURNT! That patty is charcoal!');
       }
     }

@@ -1,7 +1,9 @@
 // Burger Station boot + main loop: input every frame, world in fixed 1/60 s
 // steps, renderer paints what is there. Screens: title, play, over.
-// ?seed=N fixes the ticket order. ?shot=start|play|end stages that scene,
-// paints it twice and sets window.__shotReady for a screenshot.
+// ?seed=N fixes the ticket order. ?shot=start|play|rush|combo|end stages
+// that scene, paints it twice and sets window.__shotReady for a screenshot.
+// play is the hero cover, rush the ticket-rush beat, combo the flare-grab
+// beat, end the shift-complete panel over the kitchen.
 //
 // Test hooks: window.__burger exposes the live state (score, stack, ticket,
 // grill, screen) so an automated play test can drive and assert the game.
@@ -9,7 +11,7 @@
 import { BEST_KEY, STEP } from './config.js';
 import { createRandom } from './random.js';
 import { createWorld } from './world.js';
-import { ACTION_CLEAR, ACTION_SERVE, ACTION_START, ACTION_USE, createInput } from './input.js';
+import { ACTION_CLEAR, ACTION_PAUSE, ACTION_SERVE, ACTION_START, ACTION_USE, createInput } from './input.js';
 import { createRenderer, HIT, SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 import { stageShot } from './shots.js';
 import { sfx } from './audio.js';
@@ -80,14 +82,12 @@ function runGame() {
   let best = readBest();
   let accumulator = 0;
   let last = performance.now();
-  let paused = false;
 
   function startGame() {
     sfx.unlock();
     world.reset();
     accumulator = 0;
     screen = SCREEN_PLAY;
-    paused = false;
     announce('Playing. Build the burger on the ticket, then serve it!');
   }
 
@@ -108,6 +108,7 @@ function runGame() {
     else if (event === 'place') sfx.place();
     else if (event === 'error') sfx.error();
     else if (event === 'select') sfx.select();
+    else if (event === 'burn') sfx.burn();
   }
 
   function handleClick(click) {
@@ -157,6 +158,10 @@ function runGame() {
     handleClick(input.takeClick());
 
     const actions = input.takeActions();
+    if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
+      world.state.paused = !world.state.paused;
+      announce(world.state.paused ? 'Paused. Press P to resume.' : 'Playing.');
+    }
     if (actions & ACTION_START && (screen === SCREEN_TITLE || screen === SCREEN_OVER)) {
       startGame();
     } else if (screen === SCREEN_PLAY) {
@@ -168,13 +173,17 @@ function runGame() {
       if (actions & ACTION_CLEAR) playEvent(world.clearPlate());
     }
 
-    if (screen === SCREEN_PLAY && !paused) {
+    if (screen === SCREEN_PLAY) {
       accumulator += elapsed;
       while (accumulator >= STEP) {
         world.update(STEP);
         accumulator -= STEP;
       }
-      if (world.state._cooking) sfx.startSizzle();
+      if (world.state._burned) {
+        world.state._burned = false;
+        sfx.burn();
+      }
+      if (world.state._cooking && !world.state.paused) sfx.startSizzle();
       else sfx.stopSizzle();
       if (world.state.screen === 'over') endGame();
     }
@@ -185,5 +194,5 @@ function runGame() {
   requestAnimationFrame(frame);
 }
 
-if (shot === 'start' || shot === 'play' || shot === 'end') runShot(shot);
+if (shot === 'start' || shot === 'play' || shot === 'rush' || shot === 'combo' || shot === 'end') runShot(shot);
 else runGame();

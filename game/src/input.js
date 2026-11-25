@@ -7,6 +7,7 @@ export const ACTION_USE = 1;
 export const ACTION_SERVE = 2;
 export const ACTION_CLEAR = 4;
 export const ACTION_START = 8;
+export const ACTION_PAUSE = 16;
 
 const SELECT_KEYS = {
   Digit1: 'bunBottom',
@@ -36,6 +37,8 @@ export function createInput(canvas) {
       event.preventDefault();
     } else if (event.code === 'KeyC') {
       if (!event.repeat) actions |= ACTION_CLEAR;
+    } else if (event.code === 'KeyP') {
+      if (!event.repeat) actions |= ACTION_PAUSE;
     } else if (event.code === 'KeyR') {
       if (!event.repeat) actions |= ACTION_START;
     }

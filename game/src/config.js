@@ -64,6 +64,13 @@ export const GRILL_ZONES = [
 // Doneness 0-100. Green window = perfectly cooked; past 100 = burnt.
 export const COOK = { greenLow: 55, greenHigh: 90, burnAt: 100, baseRate: 9 };
 
+// Combo: a perfect patty or a fast serve (patience still over 60%) raises
+// the streak by 1; a wrong serve, a walk-out or a burnt patty resets it.
+// Serving while the streak is 2+ pays +10 per streak level on top.
+export const PERFECT_PATTY_BONUS = 20;
+export const COMBO_SERVE_BONUS = 10;
+export const PERFECT_SERVE_FRACTION = 0.6;
+
 export const PALETTE = {
   wall: '#fff3dc',
   wallStripe: '#ffe3b3',
@@ -71,6 +78,8 @@ export const PALETTE = {
   floorAlt: '#fff6e8',
   counter: '#8a5a2b',
   counterTop: '#c98d4b',
+  countertop: '#d9a05f',
+  countertopEdge: '#a06a2e',
   grill: '#3a3f47',
   grillEdge: '#22252b',
   panel: '#fffdf6',
