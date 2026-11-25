@@ -264,7 +264,10 @@ export function createRenderer(canvas) {
           ctx.ellipse(cx + dx, cy, 12, 5, 0, 0, Math.PI * 2);
           ctx.fill();
         }
-        if (patty.flipped) text(ctx, '✓ FLIPPED', cx, cy - 44, 13, '#7CFC9A', 900, 'center');
+        // "✓ FLIPPED" rides on the patty disc itself, well below the grease
+        // flare's tongue (which rises above the patty), so the two can
+        // never paint over each other.
+        if (patty.flipped) text(ctx, '✓ FLIPPED', cx, cy + 5, 13, '#7CFC9A', 900, 'center');
         // Doneness bar with green window.
         const bx = hit.x + 14;
         const bw = hit.w - 28;
@@ -341,7 +344,9 @@ export function createRenderer(canvas) {
       text(ctx, `${stack.length} LAYERS`, 600, y - 18, 18, PALETTE.red, 900, 'center');
     }
 
-    // Ticket match hint under the plate.
+    // Ticket match hint under the plate: a padded pill sitting on the floor
+    // band, clear of the plate above, the floor edge, and the hint bar
+    // below, so the text never crowds the checkerboard edge.
     const ticket = state.tickets[0];
     if (ticket) {
       const want = ticket.recipe.layers;
@@ -349,7 +354,15 @@ export function createRenderer(canvas) {
       const hint = stack.length === 0
         ? `Ticket: ${ticket.recipe.name} — ${want.length} layers`
         : `Matching ${doneCount}/${want.length} — next: ${LAYER_LABEL[want[stack.length]] || 'SERVE!'}`;
-      text(ctx, hint, 600, 640, 15, PALETTE.ink, 800, 'center');
+      ctx.font = '800 15px "Trebuchet MS", "Segoe UI", system-ui, sans-serif';
+      const hintW = ctx.measureText(hint).width;
+      ctx.fillStyle = PALETTE.panel;
+      rr(ctx, 600 - hintW / 2 - 14, 650, hintW + 28, 24, 12);
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = PALETTE.panelEdge;
+      ctx.stroke();
+      text(ctx, hint, 600, 666, 15, PALETTE.ink, 800, 'center');
     }
     if (state.message && state.time < state.messageUntil) {
       ctx.fillStyle = 'rgba(43,33,24,0.92)';
